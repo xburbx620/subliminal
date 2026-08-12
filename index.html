@@ -510,6 +510,8 @@ let activeRecorders = {};
 let previewNodes = [];
 let progressTimer = null;
 let previewStartedAt = 0;
+let analyzedAudioBuffer = null;
+let analyzedAudioName = "";
 
 const $ = (id) => document.getElementById(id);
 const dbToGain = (db) => Math.pow(10, Number(db) / 20);
@@ -822,6 +824,8 @@ async function analyzeFile(file) {
     const ctx = await getAudioContext();
     const data = await file.arrayBuffer();
     const buffer = await ctx.decodeAudioData(data.slice(0));
+    analyzedAudioBuffer = buffer;
+    analyzedAudioName = file.name;
     const analysis = analyzeAudioBuffer(buffer, file.name);
     renderAnalysisResults(analysis);
   } catch (error) {
@@ -973,6 +977,7 @@ function renderAnalysisResults(analysis) {
   const binauralText = analysis.binaural
     ? `<strong>${analysis.binaural.beatHz.toFixed(1)} Hz ${analysis.binaural.band}</strong><span class="mini">Left ${analysis.binaural.leftHz.toFixed(0)} Hz, right ${analysis.binaural.rightHz.toFixed(0)} Hz. This is a likely stereo binaural difference, not proof of intent.</span>`
     : `<strong>No clear binaural beat detected</strong><span class="mini">The analyzer did not find a strong left/right frequency pair between 0.5 and 45 Hz apart.</span>`;
+  const defaultEnd = Math.min(analysis.duration, 60).toFixed(1);
 
   $("analysisResults").innerHTML = `
     <div class="result-grid">
@@ -997,6 +1002,45 @@ function renderAnalysisResults(analysis) {
     </div>
 
     <div class="card">
+      <h3>Speech-To-Text Workflow</h3>
+      <p class="mini">
+        Use this when you need exact words: isolate the most speech-like part, preview it, export a speech-focused WAV,
+        then send that WAV to a speech-to-text service or keep notes here while listening.
+      </p>
+      <div class="row">
+        <label>Start second
+          <input id="sttStart" type="number" min="0" max="${analysis.duration.toFixed(1)}" value="0" step="0.1" />
+        </label>
+        <label>End second
+          <input id="sttEnd" type="number" min="0.1" max="${analysis.duration.toFixed(1)}" value="${defaultEnd}" step="0.1" />
+        </label>
+      </div>
+      <div class="row">
+        <label>Isolation preset
+          <select id="sttMode">
+            <option value="speech-band">Speech band mono, 120-4000 Hz</option>
+            <option value="center">Center vocal extraction</option>
+            <option value="mono">Mono full-range</option>
+          </select>
+        </label>
+        <label>Preview gain
+          <input id="sttGain" type="range" min="-24" max="18" value="6" step="1" />
+          <span class="mini">Boosts quiet speech for preview/export</span>
+        </label>
+      </div>
+      <div class="button-row">
+        <button type="button" onclick="previewSpeechWorkflow()">Preview Isolated Speech</button>
+        <button class="danger" type="button" onclick="stopSpeechWorkflow()">Stop Preview</button>
+        <button type="button" onclick="exportSpeechWorkflow()">Export STT WAV</button>
+        <button class="secondary" type="button" onclick="copySpeechWorkflowNotes()">Copy Workflow Notes</button>
+      </div>
+      <label>Transcript notes
+        <textarea id="sttTranscript" placeholder="Paste or type the transcript here after reviewing the isolated file."></textarea>
+      </label>
+      <div id="sttStatus" class="status">Ready to isolate a speech-focused segment from ${escapeHtml(analysis.fileName)}.</div>
+    </div>
+
+    <div class="card">
       <h3>Subliminal Message Decoding</h3>
       <p class="note">
         Exact words cannot be reliably deciphered from arbitrary mixed subliminal audio in the browser. This analyzer can tell you
@@ -1005,6 +1049,142 @@ function renderAnalysisResults(analysis) {
       </p>
     </div>
   `;
+}
+
+function speechWorkflowSettings() {
+  if (!analyzedAudioBuffer) {
+    return null;
+  }
+  const duration = analyzedAudioBuffer.duration;
+  const start = clamp(Number($("sttStart")?.value || 0), 0, Math.max(0, duration - 0.1));
+  const end = clamp(Number($("sttEnd")?.value || duration), start + 0.1, duration);
+  const mode = $("sttMode")?.value || "speech-band";
+  const gain = dbToGain(Number($("sttGain")?.value || 0));
+  return {start, end, mode, gain};
+}
+
+function buildSpeechWorkflowBuffer(ctx) {
+  const settings = speechWorkflowSettings();
+  if (!settings) return null;
+
+  const source = analyzedAudioBuffer;
+  const sr = source.sampleRate;
+  const startFrame = Math.floor(settings.start * sr);
+  const endFrame = Math.floor(settings.end * sr);
+  const length = Math.max(1, endFrame - startFrame);
+  const output = ctx.createBuffer(1, length, sr);
+  const out = output.getChannelData(0);
+  const left = source.getChannelData(0);
+  const right = source.numberOfChannels > 1 ? source.getChannelData(1) : left;
+
+  for (let i = 0; i < length; i++) {
+    const idx = startFrame + i;
+    const mono = settings.mode === "center"
+      ? (left[idx] + right[idx]) * 0.5
+      : settings.mode === "mono"
+        ? (left[idx] + right[idx]) * 0.5
+        : (left[idx] + right[idx]) * 0.5;
+    out[i] = mono;
+  }
+
+  if (settings.mode === "speech-band") {
+    applyHighPass(out, sr, 120);
+    applyLowPass(out, sr, 4000);
+  }
+
+  for (let i = 0; i < out.length; i++) {
+    out[i] = clamp(out[i] * settings.gain, -1, 1);
+  }
+
+  return output;
+}
+
+function applyHighPass(samples, sampleRate, cutoff) {
+  const dt = 1 / sampleRate;
+  const rc = 1 / (2 * Math.PI * cutoff);
+  const alpha = rc / (rc + dt);
+  let previousInput = samples[0] || 0;
+  let previousOutput = 0;
+  for (let i = 1; i < samples.length; i++) {
+    const current = samples[i];
+    const filtered = alpha * (previousOutput + current - previousInput);
+    samples[i] = filtered;
+    previousInput = current;
+    previousOutput = filtered;
+  }
+}
+
+function applyLowPass(samples, sampleRate, cutoff) {
+  const dt = 1 / sampleRate;
+  const rc = 1 / (2 * Math.PI * cutoff);
+  const alpha = dt / (rc + dt);
+  let filtered = samples[0] || 0;
+  for (let i = 1; i < samples.length; i++) {
+    filtered = filtered + alpha * (samples[i] - filtered);
+    samples[i] = filtered;
+  }
+}
+
+async function previewSpeechWorkflow() {
+  stopPreview();
+  const ctx = await getAudioContext();
+  const buffer = buildSpeechWorkflowBuffer(ctx);
+  if (!buffer) {
+    $("sttStatus").textContent = "Analyze a WAV/MP3 first, then preview the isolated speech segment.";
+    return;
+  }
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  src.connect(ctx.destination);
+  src.start(0);
+  previewNodes.push(src);
+  $("sttStatus").textContent = "Playing isolated speech preview.";
+}
+
+function stopSpeechWorkflow() {
+  stopPreview();
+  if ($("sttStatus")) $("sttStatus").textContent = "Stopped isolated speech preview.";
+}
+
+async function exportSpeechWorkflow() {
+  const ctx = await getAudioContext();
+  const buffer = buildSpeechWorkflowBuffer(ctx);
+  if (!buffer) {
+    $("sttStatus").textContent = "Analyze a WAV/MP3 first, then export the isolated speech segment.";
+    return;
+  }
+  const wav = audioBufferToWav(buffer);
+  const blob = new Blob([wav], {type: "audio/wav"});
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const base = (analyzedAudioName || "analyzed-audio").replace(/\.[^.]+$/, "").replace(/[^a-z0-9_-]+/gi, "-");
+  link.href = url;
+  link.download = `${base}-speech-isolated.wav`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+  $("sttStatus").textContent = "Exported a speech-focused WAV. Use that file with a speech-to-text service for the best chance of exact wording.";
+}
+
+async function copySpeechWorkflowNotes() {
+  const settings = speechWorkflowSettings();
+  const transcript = $("sttTranscript")?.value.trim() || "";
+  const notes = [
+    `File: ${analyzedAudioName || "No file analyzed"}`,
+    settings ? `Segment: ${settings.start.toFixed(1)}s to ${settings.end.toFixed(1)}s` : "Segment: none",
+    settings ? `Isolation: ${settings.mode}` : "Isolation: none",
+    "",
+    "Transcript notes:",
+    transcript || "(empty)"
+  ].join("\n");
+
+  try {
+    await navigator.clipboard.writeText(notes);
+    $("sttStatus").textContent = "Copied workflow notes to clipboard.";
+  } catch (_) {
+    $("sttStatus").textContent = notes;
+  }
 }
 
 function createLoopingSources(ctx, destination, duration) {

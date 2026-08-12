@@ -10,6 +10,7 @@ Features:
 - Add optional solfeggio frequencies.
 - Add optional binaural beats, including a Delta Focus 10-style preset.
 - Analyze uploaded WAV/MP3 files for dominant tones, solfeggio matches, and possible binaural beat differences.
+- Use a speech-to-text workflow to isolate, preview, and export speech-focused WAV segments for transcription.
 - Export a loopable WAV file.
 
 Run locally:
