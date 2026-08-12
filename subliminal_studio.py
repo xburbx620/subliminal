@@ -527,8 +527,7 @@ let progressTimer = null;
 let previewStartedAt = 0;
 let analyzedAudioBuffer = null;
 let analyzedAudioName = "";
-let activeSpeechRecognition = null;
-let speechRecognitionBaseText = "";
+let asrPipelinePromise = null;
 
 const $ = (id) => document.getElementById(id);
 const dbToGain = (db) => Math.pow(10, Number(db) / 20);
@@ -1045,15 +1044,12 @@ function renderAnalysisResults(analysis) {
           <span class="mini">Boosts quiet speech for preview/export</span>
         </label>
       </div>
-      <label class="item check-row">
-        <input id="sttAutoTranscript" type="checkbox" checked />
-        <span>
-          <strong>Auto-transcribe while preview plays</strong>
-          <span class="mini">Uses browser microphone speech recognition; works best if the isolated preview is audible through speakers or a routed audio device.</span>
-        </span>
-      </label>
+      <div class="item">
+        <strong>File-based speech-to-text</strong>
+        <span class="mini">Transcribes the isolated audio segment directly in the browser. The first run may download a local speech model and can take a minute.</span>
+      </div>
       <div class="button-row">
-        <button type="button" onclick="previewSpeechWorkflow()">Preview Isolated Speech</button>
+        <button type="button" onclick="previewSpeechWorkflow()">Preview + Transcribe Isolated Speech</button>
         <button class="danger" type="button" onclick="stopSpeechWorkflow()">Stop Preview</button>
         <button type="button" onclick="exportSpeechWorkflow()">Export STT WAV</button>
         <button class="secondary" type="button" onclick="copySpeechWorkflowNotes()">Copy Workflow Notes</button>
@@ -1149,57 +1145,53 @@ function applyLowPass(samples, sampleRate, cutoff) {
   }
 }
 
-function startSpeechRecognitionForPreview() {
-  if (!$("sttAutoTranscript")?.checked) return "Auto-transcription is off.";
-
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    return "This browser does not support Web Speech Recognition.";
+async function getAsrPipeline() {
+  if (!asrPipelinePromise) {
+    asrPipelinePromise = import("https://cdn.jsdelivr.net/npm/@xenova/transformers@latest").then(async (module) => {
+      module.env.allowLocalModels = false;
+      module.env.useBrowserCache = true;
+      return module.pipeline("automatic-speech-recognition", "Xenova/whisper-tiny.en");
+    });
   }
-
-  stopSpeechRecognition();
-  const transcriptBox = $("sttTranscript");
-  speechRecognitionBaseText = transcriptBox.value.trim();
-  if (speechRecognitionBaseText) speechRecognitionBaseText += "\n";
-
-  const recognition = new SpeechRecognition();
-  activeSpeechRecognition = recognition;
-  recognition.lang = "en-US";
-  recognition.continuous = true;
-  recognition.interimResults = true;
-
-  let finalText = "";
-  recognition.onresult = (event) => {
-    let interimText = "";
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      const text = event.results[i][0]?.transcript || "";
-      if (event.results[i].isFinal) finalText += text.trim() + " ";
-      else interimText += text;
-    }
-    transcriptBox.value = (speechRecognitionBaseText + finalText + interimText).trim();
-  };
-  recognition.onerror = (event) => {
-    if ($("sttStatus")) $("sttStatus").textContent = `Speech recognition error: ${event.error}. The isolated preview still played.`;
-  };
-  recognition.onend = () => {
-    if (activeSpeechRecognition === recognition) activeSpeechRecognition = null;
-  };
-
-  try {
-    recognition.start();
-    return "Auto-transcription started. Allow microphone access if prompted.";
-  } catch (_) {
-    activeSpeechRecognition = null;
-    return "Could not start auto-transcription.";
-  }
+  return asrPipelinePromise;
 }
 
-function stopSpeechRecognition() {
-  if (!activeSpeechRecognition) return;
-  try {
-    activeSpeechRecognition.stop();
-  } catch (_) {}
-  activeSpeechRecognition = null;
+function resampleTo16k(samples, inputSampleRate) {
+  const targetSampleRate = 16000;
+  if (inputSampleRate === targetSampleRate) return normalizeForAsr(new Float32Array(samples));
+
+  const length = Math.max(1, Math.round(samples.length * targetSampleRate / inputSampleRate));
+  const output = new Float32Array(length);
+  const ratio = inputSampleRate / targetSampleRate;
+
+  for (let i = 0; i < length; i++) {
+    const position = i * ratio;
+    const leftIndex = Math.floor(position);
+    const rightIndex = Math.min(samples.length - 1, leftIndex + 1);
+    const frac = position - leftIndex;
+    output[i] = samples[leftIndex] * (1 - frac) + samples[rightIndex] * frac;
+  }
+
+  return normalizeForAsr(output);
+}
+
+function normalizeForAsr(samples) {
+  let peak = 0;
+  for (const sample of samples) peak = Math.max(peak, Math.abs(sample));
+  if (peak <= 0) return samples;
+  const scale = Math.min(20, 0.85 / peak);
+  for (let i = 0; i < samples.length; i++) samples[i] = clamp(samples[i] * scale, -1, 1);
+  return samples;
+}
+
+async function transcribeSpeechWorkflowBuffer(buffer) {
+  const transcriber = await getAsrPipeline();
+  const audio = resampleTo16k(buffer.getChannelData(0), buffer.sampleRate);
+  const result = await transcriber(audio, {
+    chunk_length_s: 30,
+    stride_length_s: 5
+  });
+  return typeof result === "string" ? result : (result?.text || "");
 }
 
 async function previewSpeechWorkflow() {
@@ -1215,12 +1207,19 @@ async function previewSpeechWorkflow() {
   src.connect(ctx.destination);
   src.start(0);
   previewNodes.push(src);
-  const recognitionStatus = startSpeechRecognitionForPreview();
-  $("sttStatus").textContent = `Playing isolated speech preview. ${recognitionStatus}`;
+  $("sttStatus").textContent = "Playing isolated speech preview and loading local speech-to-text model...";
+
+  try {
+    const transcript = await transcribeSpeechWorkflowBuffer(buffer);
+    $("sttTranscript").value = transcript.trim() || "(No clear speech recognized in this isolated segment.)";
+    $("sttStatus").textContent = "Finished file-based transcription attempt. Review the transcript box below.";
+  } catch (error) {
+    console.error(error);
+    $("sttStatus").textContent = "Could not run file-based speech-to-text in this browser. Export the STT WAV and transcribe it with a dedicated STT tool.";
+  }
 }
 
 function stopSpeechWorkflow() {
-  stopSpeechRecognition();
   stopPreview();
   if ($("sttStatus")) $("sttStatus").textContent = "Stopped isolated speech preview.";
 }
@@ -1379,7 +1378,6 @@ function stopPreview() {
   progressTimer = null;
   $("progressBar").style.width = "0%";
   if (window.speechSynthesis) window.speechSynthesis.cancel();
-  stopSpeechRecognition();
 
   for (const node of previewNodes) {
     try { node.stop(); } catch (_) {}
