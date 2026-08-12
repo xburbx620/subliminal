@@ -22,3 +22,9 @@ Deploy on Streamlit Community Cloud with:
 ```text
 subliminal_studio.py
 ```
+
+Or host directly on GitHub Pages with:
+
+```text
+index.html
+```
