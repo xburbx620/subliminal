@@ -1,0 +1,1089 @@
+"""
+Streamlit wrapper for a local browser-based subliminal audio studio.
+
+Run with:
+    streamlit run subliminal_studio.py
+"""
+
+from __future__ import annotations
+
+import streamlit as st
+from streamlit.components.v1 import html
+
+
+st.set_page_config(page_title="Subliminal Audio Studio", layout="wide")
+
+APP_HTML = r"""
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #151b23;
+      --panel-2: #1f2630;
+      --text: #eef2f7;
+      --muted: #9ca8b8;
+      --accent: #7dd3fc;
+      --accent-2: #c084fc;
+      --danger: #fb7185;
+      --ok: #86efac;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at top left, rgba(125, 211, 252, 0.18), transparent 32rem),
+        radial-gradient(circle at top right, rgba(192, 132, 252, 0.16), transparent 28rem),
+        var(--bg);
+      color: var(--text);
+    }
+
+    main {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    h1, h2, h3 { margin: 0; }
+    h1 { font-size: clamp(2rem, 4vw, 3.7rem); letter-spacing: -0.05em; }
+    h2 { font-size: 1.05rem; margin-bottom: 12px; }
+    h3 { font-size: 0.95rem; color: var(--accent); margin-bottom: 8px; }
+    p { color: var(--muted); line-height: 1.55; }
+
+    .hero {
+      display: grid;
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .badge {
+      display: inline-flex;
+      width: fit-content;
+      padding: 6px 10px;
+      border: 1px solid rgba(125, 211, 252, 0.3);
+      border-radius: 999px;
+      color: var(--accent);
+      background: rgba(125, 211, 252, 0.08);
+      font-size: 0.82rem;
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(360px, 0.9fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .stack { display: grid; gap: 18px; }
+
+    .card {
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      border-radius: 22px;
+      background: rgba(21, 27, 35, 0.86);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.26);
+      padding: 20px;
+      backdrop-filter: blur(12px);
+    }
+
+    .controls {
+      display: grid;
+      gap: 12px;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    label {
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 0.86rem;
+      font-weight: 700;
+    }
+
+    input, textarea, select, button {
+      width: 100%;
+      border: 1px solid rgba(148, 163, 184, 0.24);
+      border-radius: 14px;
+      background: var(--panel-2);
+      color: var(--text);
+      padding: 11px 12px;
+      font: inherit;
+    }
+
+    textarea { min-height: 160px; resize: vertical; }
+    input[type="checkbox"] { width: auto; accent-color: var(--accent); }
+    input[type="range"] { padding: 0; }
+
+    button {
+      cursor: pointer;
+      border: 0;
+      background: linear-gradient(135deg, #38bdf8, #a78bfa);
+      color: #07111f;
+      font-weight: 900;
+      transition: transform 150ms ease, opacity 150ms ease;
+    }
+
+    button:hover { transform: translateY(-1px); }
+    button.secondary {
+      background: rgba(148, 163, 184, 0.14);
+      color: var(--text);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+    }
+    button.danger {
+      background: rgba(251, 113, 133, 0.14);
+      color: #fecdd3;
+      border: 1px solid rgba(251, 113, 133, 0.26);
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+    .button-row {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .file-list, .tone-list, .beat-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .item {
+      display: grid;
+      gap: 8px;
+      padding: 12px;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .item-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .mini {
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+
+    .check-row {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .status {
+      min-height: 42px;
+      border-radius: 16px;
+      padding: 12px;
+      background: rgba(134, 239, 172, 0.08);
+      border: 1px solid rgba(134, 239, 172, 0.18);
+      color: #dcfce7;
+      font-size: 0.9rem;
+    }
+
+    .meter {
+      display: grid;
+      gap: 7px;
+      margin-top: 8px;
+    }
+
+    .bar {
+      height: 10px;
+      border-radius: 99px;
+      background: rgba(148, 163, 184, 0.16);
+      overflow: hidden;
+    }
+
+    .bar span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+      transition: width 120ms ease;
+    }
+
+    .note {
+      border-left: 3px solid var(--accent);
+      padding-left: 12px;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    .message-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin: 12px 0;
+    }
+
+    .message-box textarea {
+      min-height: 92px;
+      font-size: 0.88rem;
+    }
+
+    .record-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .record-row button {
+      padding: 9px 8px;
+      font-size: 0.82rem;
+    }
+
+    .voice-tag {
+      color: var(--accent);
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.02em;
+      text-transform: uppercase;
+    }
+
+    @media (max-width: 920px) {
+      main { padding: 18px; }
+      .grid, .row, .button-row, .message-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <div class="badge">Local Desktop Web Audio Studio</div>
+    <h1>Subliminal Audio Studio</h1>
+    <p>
+      Stack MP3/WAV files, add low-level subliminal text pulses, solfeggio tones, and binaural beats,
+      then export a loopable WAV file that plays on iPhone. For spoken affirmations, record or import
+      the voice as an audio layer, then keep it low in the mix.
+    </p>
+  </section>
+
+  <section class="grid">
+    <div class="stack">
+      <div class="card">
+        <h2>1. Import Audio Layers</h2>
+        <p class="mini">Add music, rain, ambience, spoken affirmations, or a previous export to stack another layer on top.</p>
+        <input id="fileInput" type="file" accept="audio/wav,audio/x-wav,audio/mpeg,audio/mp3" multiple />
+        <div id="fileList" class="file-list"></div>
+      </div>
+
+      <div class="card">
+        <h2>2. Stackable Affirmation Layers</h2>
+        <p class="mini">
+          Use up to 12 affirmation boxes. Record voice directly in any box, or use the text fallback. Every checked box
+          is mixed into the file at the same time. A voice recording overrides the text pulse for that box.
+        </p>
+        <div id="messageGrid" class="message-grid"></div>
+        <div class="row">
+          <label>Stacked message gain
+            <input id="messageGain" type="range" min="-60" max="-18" value="-42" step="1" />
+            <span class="mini"><span id="messageGainValue">-42</span> dB</span>
+          </label>
+          <label>Affirmation speed
+            <input id="messageSpeed" type="range" min="1" max="2" value="1" step="0.1" />
+            <span class="mini"><span id="messageSpeedValue">1.0</span>x; 1.0x to 2.0x in 0.1 steps</span>
+          </label>
+        </div>
+        <div class="row">
+          <label>Repeat every
+            <input id="messageRepeat" type="number" min="2" max="120" value="12" />
+            <span class="mini">seconds between message pulse cycles</span>
+          </label>
+          <label>Recorded voice gain
+            <input id="voiceGain" type="range" min="-60" max="6" value="-12" step="1" />
+            <span class="mini"><span id="voiceGainValue">-12</span> dB; turn up while testing recordings</span>
+          </label>
+        </div>
+        <button id="speakPreview" class="secondary" type="button">Preview selected text voices</button>
+      </div>
+
+      <div class="card">
+        <h2>3. Solfeggio Frequencies</h2>
+        <p class="mini">Choose any tones to mix under the audio. Keep gain low for comfortable listening.</p>
+        <div id="toneList" class="tone-list"></div>
+      </div>
+    </div>
+
+    <div class="stack">
+      <div class="card">
+        <h2>Session Controls</h2>
+        <div class="controls">
+          <div class="row">
+            <label>Output duration
+              <input id="duration" type="number" min="10" max="7200" value="600" />
+              <span class="mini">seconds; use 3600 for 1 hour</span>
+            </label>
+            <label>Master gain
+              <input id="masterGain" type="range" min="-24" max="0" value="-3" step="1" />
+              <span class="mini"><span id="masterGainValue">-3</span> dB</span>
+            </label>
+          </div>
+          <div class="row">
+            <label>Audio layer gain
+              <input id="audioGain" type="range" min="-48" max="6" value="-6" step="1" />
+              <span class="mini"><span id="audioGainValue">-6</span> dB</span>
+            </label>
+            <label>Tone/beat gain
+              <input id="toneGain" type="range" min="-60" max="-12" value="-34" step="1" />
+              <span class="mini"><span id="toneGainValue">-34</span> dB</span>
+            </label>
+          <label class="item check-row">
+            <input id="toneBeatEnabled" type="checkbox" checked />
+            <span>
+              <strong>Use tone/beat layer</strong>
+              <span class="mini">Uncheck to remove solfeggio tones and binaural beats from preview/export.</span>
+            </span>
+          </label>
+          </div>
+          <div class="button-row">
+            <button id="playBtn" type="button">Play Loop</button>
+            <button id="stopBtn" class="danger" type="button">Stop</button>
+            <button id="exportBtn" type="button">Export WAV</button>
+          </div>
+          <div class="meter">
+            <div class="bar"><span id="progressBar"></span></div>
+            <div id="status" class="status">Ready. Import MP3/WAV files or create a tone-only subliminal bed.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>4. Binaural Beats</h2>
+        <p class="mini">Use headphones for binaural beats. The left and right ears receive slightly different frequencies.</p>
+        <div class="row">
+          <label>Brainwave band
+            <select id="beatBand"></select>
+          </label>
+          <label>Carrier frequency
+            <input id="carrier" type="number" min="80" max="800" value="220" />
+            <span class="mini">Hz</span>
+          </label>
+        </div>
+        <div class="row">
+          <label>Custom beat frequency
+            <input id="beatHz" type="number" min="0.5" max="45" value="7.83" step="0.1" />
+            <span class="mini">Hz difference between ears</span>
+          </label>
+          <label class="item check-row">
+            <input id="beatEnabled" type="checkbox" checked />
+            <span>
+              <strong>Use binaural beat</strong>
+              <span class="mini">Uncheck to remove binaural beats from preview and export.</span>
+            </span>
+          </label>
+        </div>
+        <div id="beatDescription" class="note"></div>
+      </div>
+
+      <div class="card">
+        <h2>Use Notes</h2>
+        <p class="note">
+          Keep the final mix at a comfortable volume and avoid using headphones while driving or doing anything
+          that needs full attention. Binaural beats are not medical treatment.
+        </p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+const solfeggio = [
+  {hz: 174, title: "174 Hz", desc: "Often used for grounding and physical comfort."},
+  {hz: 285, title: "285 Hz", desc: "Associated with restoration and tissue repair themes."},
+  {hz: 396, title: "396 Hz", desc: "Commonly described as release from fear or guilt."},
+  {hz: 417, title: "417 Hz", desc: "Used for change, clearing, and resetting patterns."},
+  {hz: 528, title: "528 Hz", desc: "Known as a transformation or positive intention tone."},
+  {hz: 639, title: "639 Hz", desc: "Often paired with connection and relationship themes."},
+  {hz: 741, title: "741 Hz", desc: "Associated with expression, clarity, and problem solving."},
+  {hz: 852, title: "852 Hz", desc: "Used for intuition, insight, and inner awareness."},
+  {hz: 963, title: "963 Hz", desc: "Associated with spaciousness and meditative awareness."}
+];
+
+const beatBands = [
+  {key: "delta", label: "Delta - 4 Hz, Focus 10-style", hz: 4.0, carrier: 102, desc: "Focus 10-style preset: 100 Hz left ear and 104 Hz right ear, creating a 4 Hz delta binaural beat."},
+  {key: "theta", label: "Theta - 4 to 8 Hz", hz: 6.0, desc: "Meditation, imagery, hypnagogic and relaxed states."},
+  {key: "schumann", label: "Schumann-style - 7.83 Hz", hz: 7.83, desc: "A popular relaxation setting near the earth resonance value."},
+  {key: "alpha", label: "Alpha - 8 to 13 Hz", hz: 10.0, desc: "Calm focus, relaxed wakefulness, light meditation."},
+  {key: "beta", label: "Beta - 13 to 30 Hz", hz: 18.0, desc: "Alert focus, active thinking, task engagement."},
+  {key: "gamma", label: "Gamma - 30 to 45 Hz", hz: 40.0, desc: "High attention, binding, and peak cognitive processing."}
+];
+
+const defaultAffirmations = [
+  "I am calm, focused, confident, and aligned with positive change.",
+  "My mind accepts these messages easily and naturally.",
+  "Every day I become more grounded, clear, and resilient.",
+  "I choose thoughts and actions that support my highest good.",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  ""
+];
+
+const voiceProfiles = [
+  {name: "Low Whisper", base: 440, spread: 11, noise: 0.24, tone: 0.08, pan: -0.55, pitch: 0.68, rate: 0.72},
+  {name: "Soft Alto", base: 520, spread: 13, noise: 0.20, tone: 0.10, pan: -0.35, pitch: 0.82, rate: 0.78},
+  {name: "Warm Mid", base: 610, spread: 17, noise: 0.18, tone: 0.12, pan: -0.15, pitch: 0.96, rate: 0.84},
+  {name: "Bright Soft", base: 700, spread: 19, noise: 0.16, tone: 0.13, pan: 0.12, pitch: 1.08, rate: 0.88},
+  {name: "Air Voice", base: 820, spread: 23, noise: 0.25, tone: 0.07, pan: 0.35, pitch: 1.2, rate: 0.74},
+  {name: "Deep Pulse", base: 360, spread: 9, noise: 0.18, tone: 0.15, pan: 0.55, pitch: 0.6, rate: 0.68},
+  {name: "Feather", base: 760, spread: 15, noise: 0.28, tone: 0.06, pan: -0.7, pitch: 1.32, rate: 0.92},
+  {name: "Velvet", base: 480, spread: 21, noise: 0.14, tone: 0.14, pan: 0.72, pitch: 0.74, rate: 0.8},
+  {name: "Clear High", base: 930, spread: 25, noise: 0.12, tone: 0.13, pan: -0.22, pitch: 1.45, rate: 0.86},
+  {name: "Slow Ground", base: 390, spread: 12, noise: 0.20, tone: 0.11, pan: 0.22, pitch: 0.64, rate: 0.62},
+  {name: "Gentle Lift", base: 670, spread: 14, noise: 0.22, tone: 0.09, pan: -0.42, pitch: 1.12, rate: 0.9},
+  {name: "Dream Layer", base: 570, spread: 18, noise: 0.26, tone: 0.08, pan: 0.42, pitch: 0.9, rate: 0.7}
+];
+
+let audioCtx = null;
+let decodedLayers = [];
+let recordedMessages = Array.from({length: 12}, () => null);
+let activeRecorders = {};
+let previewNodes = [];
+let progressTimer = null;
+let previewStartedAt = 0;
+
+const $ = (id) => document.getElementById(id);
+const dbToGain = (db) => Math.pow(10, Number(db) / 20);
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+function setStatus(text) {
+  $("status").textContent = text;
+}
+
+function selectedTones() {
+  return solfeggio.filter((tone) => $("tone-" + tone.hz).checked);
+}
+
+function durationSeconds() {
+  return clamp(Number($("duration").value || 600), 10, 7200);
+}
+
+function messageSpeed() {
+  return clamp(Number($("messageSpeed").value || 1), 1, 2);
+}
+
+function updateRangeLabels() {
+  $("audioGainValue").textContent = $("audioGain").value;
+  $("messageGainValue").textContent = $("messageGain").value;
+  $("messageSpeedValue").textContent = messageSpeed().toFixed(1);
+  $("voiceGainValue").textContent = $("voiceGain").value;
+  $("toneGainValue").textContent = $("toneGain").value;
+  $("masterGainValue").textContent = $("masterGain").value;
+}
+
+function escapeHtml(value) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderMessageBoxes() {
+  $("messageGrid").innerHTML = voiceProfiles.map((profile, index) => `
+    <div class="item message-box">
+      <label class="check-row">
+        <input id="messageEnabled-${index}" type="checkbox" ${index < 4 ? "checked" : ""} />
+        <span>
+          <strong>Affirmation ${index + 1}</strong>
+          <span class="voice-tag">${profile.name}</span>
+        </span>
+      </label>
+      <textarea id="messageText-${index}" spellcheck="true" placeholder="Type affirmation ${index + 1}...">${escapeHtml(defaultAffirmations[index] || "")}</textarea>
+      <button class="secondary" type="button" onclick="playSingleMessage(${index})">Play Text ${index + 1}</button>
+      <div class="record-row">
+        <button type="button" onclick="startVoiceRecording(${index})">Record</button>
+        <button id="stopRecord-${index}" class="danger" type="button" onclick="stopVoiceRecording(${index})" disabled>Stop</button>
+        <button class="secondary" type="button" onclick="playVoiceRecording(${index})">Play Voice</button>
+        <button class="danger" type="button" onclick="clearVoiceRecording(${index})">Clear</button>
+      </div>
+      <span id="recordStatus-${index}" class="mini">No voice recording for this box.</span>
+    </div>
+  `).join("");
+}
+
+function selectedMessages() {
+  return voiceProfiles.map((profile, index) => {
+    const enabled = $("messageEnabled-" + index)?.checked;
+    const text = $("messageText-" + index)?.value.trim() || "";
+    const recording = recordedMessages[index];
+    return enabled && text && !recording?.buffer ? {index, profile, text} : null;
+  }).filter(Boolean);
+}
+
+function selectedMessageSlots() {
+  return voiceProfiles.map((profile, index) => {
+    const enabled = $("messageEnabled-" + index)?.checked;
+    const text = $("messageText-" + index)?.value.trim() || "";
+    const recording = recordedMessages[index];
+    if (!enabled || (!text && !recording?.buffer)) return null;
+    return {index, profile, text, recording};
+  }).filter(Boolean);
+}
+
+function checkedMessageSummary(slots) {
+  if (!slots.length) return "No checked affirmation boxes with text or voice recordings are currently included.";
+  return slots
+    .map((slot) => `Box ${slot.index + 1} (${slot.recording?.buffer ? "voice recording" : "text pulse"}, ${slot.profile.name})`)
+    .join(", ");
+}
+
+window.playSingleMessage = function playSingleMessage(index) {
+  if (!window.speechSynthesis) {
+    setStatus("This browser does not expose speech synthesis.");
+    return;
+  }
+  const text = $("messageText-" + index)?.value.trim() || "";
+  if (!text) {
+    setStatus(`Affirmation ${index + 1} is empty.`);
+    return;
+  }
+  const profile = voiceProfiles[index];
+  const browserVoices = window.speechSynthesis.getVoices();
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(text);
+  if (browserVoices.length) utterance.voice = browserVoices[index % browserVoices.length];
+  utterance.rate = clamp(profile.rate * messageSpeed(), 0.1, 2);
+  utterance.pitch = profile.pitch;
+  utterance.volume = 0.55;
+  window.speechSynthesis.speak(utterance);
+  setStatus(`Playing affirmation ${index + 1} with ${profile.name} voice profile.`);
+};
+
+window.startVoiceRecording = async function startVoiceRecording(index) {
+  if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    setStatus("Voice recording is not supported in this browser.");
+    return;
+  }
+  if (activeRecorders[index]) {
+    setStatus(`Affirmation ${index + 1} is already recording.`);
+    return;
+  }
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({audio: true});
+    const recorder = new MediaRecorder(stream);
+    const chunks = [];
+    activeRecorders[index] = {recorder, stream, chunks};
+    $("stopRecord-" + index).disabled = false;
+    $("recordStatus-" + index).textContent = "Recording voice...";
+    setStatus(`Recording voice for affirmation ${index + 1}. Click Stop when finished.`);
+
+    recorder.ondataavailable = (event) => {
+      if (event.data && event.data.size) chunks.push(event.data);
+    };
+
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      $("stopRecord-" + index).disabled = true;
+      delete activeRecorders[index];
+
+      if (!chunks.length) {
+        $("recordStatus-" + index).textContent = "No voice recording captured.";
+        setStatus(`No audio was captured for affirmation ${index + 1}.`);
+        return;
+      }
+
+      try {
+        const blob = new Blob(chunks, {type: chunks[0].type || "audio/webm"});
+        const ctx = await getAudioContext();
+        const data = await blob.arrayBuffer();
+        const buffer = await ctx.decodeAudioData(data.slice(0));
+        if (recordedMessages[index]?.url) URL.revokeObjectURL(recordedMessages[index].url);
+        recordedMessages[index] = {
+          blob,
+          buffer,
+          url: URL.createObjectURL(blob),
+          duration: buffer.duration
+        };
+        $("recordStatus-" + index).textContent = `Voice recorded: ${buffer.duration.toFixed(1)} sec. Checked box will use this recording.`;
+        setStatus(`Voice recording saved for affirmation ${index + 1}.`);
+      } catch (error) {
+        console.error(error);
+        $("recordStatus-" + index).textContent = "Could not decode this recording.";
+        setStatus(`Could not decode voice recording for affirmation ${index + 1}.`);
+      }
+    };
+
+    recorder.start();
+  } catch (error) {
+    console.error(error);
+    setStatus("Microphone permission was blocked or no microphone was available.");
+  }
+};
+
+window.stopVoiceRecording = function stopVoiceRecording(index) {
+  const active = activeRecorders[index];
+  if (!active) return;
+  try {
+    active.recorder.stop();
+  } catch (_) {
+    active.stream.getTracks().forEach((track) => track.stop());
+    delete activeRecorders[index];
+    $("stopRecord-" + index).disabled = true;
+  }
+};
+
+window.playVoiceRecording = async function playVoiceRecording(index) {
+  const recording = recordedMessages[index];
+  if (!recording?.buffer) {
+    setStatus(`No voice recording exists for affirmation ${index + 1}.`);
+    return;
+  }
+  const ctx = await getAudioContext();
+  const profile = voiceProfiles[index];
+  const src = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  const pan = ctx.createStereoPanner();
+  src.buffer = recording.buffer;
+  src.playbackRate.value = messageSpeed();
+  gain.gain.value = 0.9;
+  pan.pan.value = profile.pan;
+  src.connect(gain).connect(pan).connect(ctx.destination);
+  src.start(0);
+  previewNodes.push(src);
+  setStatus(`Playing recorded voice for affirmation ${index + 1}.`);
+};
+
+window.clearVoiceRecording = function clearVoiceRecording(index) {
+  if (activeRecorders[index]) stopVoiceRecording(index);
+  if (recordedMessages[index]?.url) URL.revokeObjectURL(recordedMessages[index].url);
+  recordedMessages[index] = null;
+  $("recordStatus-" + index).textContent = "No voice recording for this box.";
+  setStatus(`Cleared voice recording for affirmation ${index + 1}.`);
+};
+
+function renderToneList() {
+  $("toneList").innerHTML = solfeggio.map((tone) => `
+    <label class="item check-row">
+      <input id="tone-${tone.hz}" type="checkbox" ${tone.hz === 528 ? "checked" : ""} />
+      <span>
+        <strong>${tone.title}</strong>
+        <span class="mini">${tone.desc}</span>
+      </span>
+    </label>
+  `).join("");
+}
+
+function renderBeatOptions() {
+  $("beatBand").innerHTML = beatBands.map((band) => `<option value="${band.key}">${band.label}</option>`).join("");
+  $("beatBand").value = "schumann";
+  updateBeatDescription();
+}
+
+function updateBeatDescription() {
+  const band = beatBands.find((item) => item.key === $("beatBand").value) || beatBands[0];
+  $("beatHz").value = band.hz;
+  if (band.carrier) $("carrier").value = band.carrier;
+  $("beatDescription").textContent = band.desc;
+}
+
+function renderFileList() {
+  if (!decodedLayers.length) {
+    $("fileList").innerHTML = `<p class="mini">No audio layers loaded yet.</p>`;
+    return;
+  }
+
+  $("fileList").innerHTML = decodedLayers.map((layer, index) => `
+    <div class="item">
+      <div class="item-head">
+        <strong>${index + 1}. ${layer.name}</strong>
+        <button class="danger" type="button" onclick="removeLayer(${index})">Remove</button>
+      </div>
+      <span class="mini">${layer.buffer.numberOfChannels} channel(s), ${layer.buffer.duration.toFixed(1)} sec, ${Math.round(layer.buffer.sampleRate)} Hz</span>
+    </div>
+  `).join("");
+}
+
+window.removeLayer = function removeLayer(index) {
+  decodedLayers.splice(index, 1);
+  renderFileList();
+};
+
+async function getAudioContext() {
+  if (!audioCtx || audioCtx.state === "closed") {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate: 44100});
+  }
+  if (audioCtx.state === "suspended") await audioCtx.resume();
+  return audioCtx;
+}
+
+async function handleFiles(event) {
+  const ctx = await getAudioContext();
+  const files = Array.from(event.target.files || []);
+  if (!files.length) return;
+  setStatus(`Decoding ${files.length} audio file(s)...`);
+
+  for (const file of files) {
+    try {
+      const data = await file.arrayBuffer();
+      const buffer = await ctx.decodeAudioData(data.slice(0));
+      decodedLayers.push({name: file.name, buffer});
+    } catch (error) {
+      console.error(error);
+      setStatus(`Could not decode ${file.name}. Try a standard WAV or MP3 file.`);
+    }
+  }
+
+  renderFileList();
+  setStatus(`Loaded ${decodedLayers.length} audio layer(s).`);
+  event.target.value = "";
+}
+
+function createLoopingSources(ctx, destination, duration) {
+  const master = ctx.createGain();
+  master.gain.value = dbToGain($("masterGain").value);
+  master.connect(destination);
+
+  const audioGain = ctx.createGain();
+  audioGain.gain.value = dbToGain($("audioGain").value);
+  audioGain.connect(master);
+
+  for (const layer of decodedLayers) {
+    const src = ctx.createBufferSource();
+    src.buffer = layer.buffer;
+    src.loop = true;
+    src.connect(audioGain);
+    src.start(0);
+    previewNodes.push(src);
+  }
+
+  if ($("toneBeatEnabled").checked) {
+    const toneGain = ctx.createGain();
+    toneGain.gain.value = dbToGain($("toneGain").value);
+    toneGain.connect(master);
+
+    for (const tone of selectedTones()) {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = tone.hz;
+      osc.connect(toneGain);
+      osc.start(0);
+      if (duration) osc.stop(duration);
+      previewNodes.push(osc);
+    }
+
+    if ($("beatEnabled").checked) {
+      const carrier = Number($("carrier").value || 220);
+      const beat = Number($("beatHz").value || 7.83);
+      const left = ctx.createOscillator();
+      const right = ctx.createOscillator();
+      const leftPan = ctx.createStereoPanner();
+      const rightPan = ctx.createStereoPanner();
+      left.type = "sine";
+      right.type = "sine";
+      left.frequency.value = carrier - beat / 2;
+      right.frequency.value = carrier + beat / 2;
+      leftPan.pan.value = -1;
+      rightPan.pan.value = 1;
+      left.connect(leftPan).connect(toneGain);
+      right.connect(rightPan).connect(toneGain);
+      left.start(0);
+      right.start(0);
+      if (duration) {
+        left.stop(duration);
+        right.stop(duration);
+      }
+      previewNodes.push(left, right);
+    }
+  }
+
+  const messageGainNode = ctx.createGain();
+  messageGainNode.gain.value = dbToGain($("messageGain").value);
+  messageGainNode.connect(master);
+
+  const voiceGainNode = ctx.createGain();
+  voiceGainNode.gain.value = dbToGain($("voiceGain").value);
+  voiceGainNode.connect(master);
+
+  const messageBuffer = createMessagePulseMixBuffer(ctx, duration || durationSeconds());
+  if (messageBuffer) {
+    const src = ctx.createBufferSource();
+    src.buffer = messageBuffer;
+    src.loop = true;
+    src.connect(messageGainNode);
+    src.start(0);
+    if (duration) src.stop(duration);
+    previewNodes.push(src);
+  }
+
+  for (const slot of selectedMessageSlots()) {
+    if (!slot.recording?.buffer) continue;
+    const src = ctx.createBufferSource();
+    const pan = ctx.createStereoPanner();
+    src.buffer = slot.recording.buffer;
+    src.loop = true;
+    src.playbackRate.value = messageSpeed();
+    pan.pan.value = slot.profile.pan;
+    src.connect(pan).connect(voiceGainNode);
+    src.start(0);
+    if (duration) src.stop(duration);
+    previewNodes.push(src);
+  }
+
+  return master;
+}
+
+async function playPreview() {
+  stopPreview();
+  const ctx = await getAudioContext();
+  previewNodes = [];
+  const messages = selectedMessageSlots();
+  createLoopingSources(ctx, ctx.destination, null);
+  previewStartedAt = ctx.currentTime;
+  progressTimer = window.setInterval(() => {
+    const pct = ((ctx.currentTime - previewStartedAt) % durationSeconds()) / durationSeconds() * 100;
+    $("progressBar").style.width = pct.toFixed(2) + "%";
+  }, 180);
+  setStatus(`Playing loop preview. Checked affirmation boxes in this stack: ${checkedMessageSummary(messages)}. Recorded voice gain: ${$("voiceGain").value} dB.`);
+}
+
+function stopPreview() {
+  if (progressTimer) window.clearInterval(progressTimer);
+  progressTimer = null;
+  $("progressBar").style.width = "0%";
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+
+  for (const node of previewNodes) {
+    try { node.stop(); } catch (_) {}
+    try { node.disconnect(); } catch (_) {}
+  }
+  previewNodes = [];
+
+  const ctxToClose = audioCtx;
+  audioCtx = null;
+  if (ctxToClose && ctxToClose.state !== "closed") {
+    try {
+      ctxToClose.close().catch(() => {});
+    } catch (_) {}
+  }
+}
+
+function speakPreview() {
+  if (!window.speechSynthesis) {
+    setStatus("This browser does not expose speech synthesis.");
+    return;
+  }
+  window.speechSynthesis.cancel();
+  const messages = selectedMessages();
+  if (!messages.length) {
+    setStatus("Check at least one affirmation box with text to preview.");
+    return;
+  }
+  const browserVoices = window.speechSynthesis.getVoices();
+  const speed = messageSpeed();
+  for (const message of messages) {
+    const utterance = new SpeechSynthesisUtterance(message.text);
+    if (browserVoices.length) utterance.voice = browserVoices[message.index % browserVoices.length];
+    utterance.rate = clamp(message.profile.rate * speed, 0.1, 2);
+    utterance.pitch = message.profile.pitch;
+    utterance.volume = 0.45;
+    window.speechSynthesis.speak(utterance);
+  }
+  setStatus("Browser voice preview queued selected boxes. Preview/export audio stacks all checked subliminal profiles at once.");
+}
+
+function createMessagePulseMixBuffer(ctx, duration) {
+  const messages = selectedMessages();
+  if (!messages.length) return null;
+  const sr = ctx.sampleRate;
+  const length = Math.max(1, Math.floor(duration * sr));
+  const buffer = ctx.createBuffer(2, length, sr);
+  const left = buffer.getChannelData(0);
+  const right = buffer.getChannelData(1);
+  const repeat = clamp(Number($("messageRepeat").value || 12), 2, 120);
+  const speed = messageSpeed();
+
+  for (const message of messages) {
+    addMessagePulseLayer(left, right, message.text, message.profile, message.index, sr, length, repeat, speed);
+  }
+
+  return buffer;
+}
+
+function addMessagePulseLayer(left, right, text, profile, layerIndex, sr, length, repeat, speed) {
+  const chars = Array.from(text.replace(/\s+/g, " ").toLowerCase());
+  let seed = 2166136261;
+
+  for (const ch of chars) {
+    seed ^= ch.charCodeAt(0);
+    seed = Math.imul(seed, 16777619);
+  }
+  seed ^= (layerIndex + 1) * 2654435761;
+
+  function random() {
+    seed ^= seed << 13;
+    seed ^= seed >>> 17;
+    seed ^= seed << 5;
+    return ((seed >>> 0) / 4294967295) * 2 - 1;
+  }
+
+  const cycleSamples = Math.floor(repeat * sr);
+  const pulseSamples = Math.floor(((0.034 + (layerIndex % 4) * 0.006) / speed) * sr);
+  const charGap = Math.floor(((0.072 + (layerIndex % 5) * 0.008) / speed) * sr);
+  const voiceOffset = Math.floor((layerIndex % 6) * 0.11 * sr);
+  const pan = clamp(profile.pan, -1, 1);
+  const leftGain = Math.cos((pan + 1) * Math.PI / 4);
+  const rightGain = Math.sin((pan + 1) * Math.PI / 4);
+
+  for (let cycle = 0; cycle < length; cycle += cycleSamples) {
+    for (let i = 0; i < chars.length; i++) {
+      const code = chars[i].charCodeAt(0);
+      const start = cycle + voiceOffset + i * charGap;
+      if (start >= cycle + cycleSamples || start >= length) break;
+      const freq = profile.base + (code % 37) * profile.spread;
+      const formant = freq * (1.45 + (layerIndex % 3) * 0.08);
+      for (let j = 0; j < pulseSamples && start + j < length; j++) {
+        const t = j / sr;
+        const env = Math.sin(Math.PI * j / pulseSamples);
+        const shapedNoise =
+          random() * profile.noise +
+          Math.sin(2 * Math.PI * freq * t) * profile.tone +
+          Math.sin(2 * Math.PI * formant * t) * 0.035;
+        const sample = shapedNoise * env * 0.72;
+        left[start + j] += sample * leftGain;
+        right[start + j] += sample * rightGain;
+      }
+    }
+  }
+}
+
+async function exportWav() {
+  stopPreview();
+  const duration = durationSeconds();
+  const sampleRate = 44100;
+  const channels = 2;
+  const totalFrames = Math.floor(duration * sampleRate);
+
+  setStatus("Rendering WAV offline. Longer files can take a little while...");
+  $("exportBtn").disabled = true;
+  $("progressBar").style.width = "20%";
+
+  try {
+    const offline = new OfflineAudioContext(channels, totalFrames, sampleRate);
+    previewNodes = [];
+    createLoopingSources(offline, offline.destination, duration);
+    const rendered = await offline.startRendering();
+    $("progressBar").style.width = "80%";
+    const wav = audioBufferToWav(rendered);
+    const blob = new Blob([wav], {type: "audio/wav"});
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    link.href = url;
+    link.download = `subliminal-stack-${stamp}.wav`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 30000);
+    $("progressBar").style.width = "100%";
+    setStatus("Export complete. The WAV file is loopable and can be added back as a new layer later.");
+  } catch (error) {
+    console.error(error);
+    setStatus("Export failed. Try a shorter duration or fewer imported layers.");
+  } finally {
+    previewNodes = [];
+    $("exportBtn").disabled = false;
+    window.setTimeout(() => { $("progressBar").style.width = "0%"; }, 1400);
+  }
+}
+
+function audioBufferToWav(buffer) {
+  const channels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const frames = buffer.length;
+  const bytesPerSample = 2;
+  const blockAlign = channels * bytesPerSample;
+  const dataSize = frames * blockAlign;
+  const arrayBuffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(arrayBuffer);
+
+  writeString(view, 0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(view, 8, "WAVE");
+  writeString(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * blockAlign, true);
+  view.setUint16(32, blockAlign, true);
+  view.setUint16(34, 16, true);
+  writeString(view, 36, "data");
+  view.setUint32(40, dataSize, true);
+
+  const channelData = [];
+  for (let ch = 0; ch < channels; ch++) channelData.push(buffer.getChannelData(ch));
+
+  let offset = 44;
+  for (let i = 0; i < frames; i++) {
+    for (let ch = 0; ch < channels; ch++) {
+      const sample = clamp(channelData[ch][i], -1, 1);
+      view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+      offset += 2;
+    }
+  }
+  return arrayBuffer;
+}
+
+function writeString(view, offset, value) {
+  for (let i = 0; i < value.length; i++) {
+    view.setUint8(offset + i, value.charCodeAt(i));
+  }
+}
+
+renderToneList();
+renderBeatOptions();
+renderMessageBoxes();
+renderFileList();
+updateRangeLabels();
+
+$("fileInput").addEventListener("change", handleFiles);
+$("beatBand").addEventListener("change", updateBeatDescription);
+$("playBtn").addEventListener("click", playPreview);
+$("stopBtn").addEventListener("click", () => {
+  stopPreview();
+  setStatus("Stopped.");
+});
+$("exportBtn").addEventListener("click", exportWav);
+$("speakPreview").addEventListener("click", speakPreview);
+["audioGain", "messageGain", "messageSpeed", "voiceGain", "toneGain", "masterGain"].forEach((id) => {
+  $(id).addEventListener("input", updateRangeLabels);
+});
+</script>
+</body>
+</html>
+"""
+
+
+st.title("Subliminal Audio Studio")
+st.caption(
+    "A local browser-based workstation for stacking subliminal audio layers, "
+    "solfeggio frequencies, and binaural beats."
+)
+
+st.info(
+    "This app runs the audio engine in your browser. Imported MP3/WAV files stay local, "
+    "and exported files are standard loopable WAV files."
+)
+
+html(APP_HTML, height=1850, scrolling=True)
