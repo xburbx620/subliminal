@@ -240,9 +240,51 @@
       text-transform: uppercase;
     }
 
+    .tabs {
+      display: flex;
+      gap: 10px;
+      margin: 0 0 18px;
+      flex-wrap: wrap;
+    }
+
+    .tab-button {
+      width: auto;
+      min-width: 170px;
+      background: rgba(148, 163, 184, 0.14);
+      color: var(--text);
+      border: 1px solid rgba(148, 163, 184, 0.22);
+    }
+
+    .tab-button.active {
+      background: linear-gradient(135deg, #38bdf8, #a78bfa);
+      color: #07111f;
+    }
+
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .tab-panel.active.grid { display: grid; }
+
+    .analysis-results {
+      display: grid;
+      gap: 12px;
+      margin-top: 14px;
+    }
+
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .result-value {
+      font-size: 1.35rem;
+      color: var(--accent);
+      font-weight: 900;
+    }
+
     @media (max-width: 920px) {
       main { padding: 18px; }
-      .grid, .row, .button-row, .message-grid { grid-template-columns: 1fr; }
+      .grid, .row, .button-row, .message-grid, .result-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -258,7 +300,12 @@
     </p>
   </section>
 
-  <section class="grid">
+  <div class="tabs">
+    <button id="createTab" class="tab-button active" type="button" onclick="showTab('create')">Create Subliminal</button>
+    <button id="analyzeTab" class="tab-button" type="button" onclick="showTab('analyze')">Analyze Audio</button>
+  </div>
+
+  <section id="createPanel" class="grid tab-panel active">
     <div class="stack">
       <div class="card">
         <h2>1. Import Audio Layers</h2>
@@ -384,6 +431,24 @@
       </div>
     </div>
   </section>
+
+  <section id="analyzePanel" class="tab-panel">
+    <div class="card">
+      <h2>Analyze WAV/MP3 File</h2>
+      <p class="mini">
+        Drop in a WAV or MP3 to inspect dominant tones, likely solfeggio matches, and possible binaural beat differences.
+        Exact subliminal words cannot be reliably decoded from arbitrary mixed audio unless the speech is clear enough to hear.
+      </p>
+      <div id="analyzerDropZone" class="item">
+        <strong>Drop WAV/MP3 here</strong>
+        <span class="mini">or choose a file below</span>
+      </div>
+      <input id="analyzeFileInput" type="file" accept="audio/wav,audio/x-wav,audio/mpeg,audio/mp3" />
+      <div id="analysisResults" class="analysis-results">
+        <div class="status">Choose a WAV/MP3 file to analyze.</div>
+      </div>
+    </div>
+  </section>
 </main>
 
 <script>
@@ -452,6 +517,14 @@ const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
 function setStatus(text) {
   $("status").textContent = text;
+}
+
+function showTab(tabName) {
+  const isCreate = tabName === "create";
+  $("createPanel").classList.toggle("active", isCreate);
+  $("analyzePanel").classList.toggle("active", !isCreate);
+  $("createTab").classList.toggle("active", isCreate);
+  $("analyzeTab").classList.toggle("active", !isCreate);
 }
 
 function selectedTones() {
@@ -732,6 +805,206 @@ async function handleFiles(event) {
   renderFileList();
   setStatus(`Loaded ${decodedLayers.length} audio layer(s).`);
   event.target.value = "";
+}
+
+async function handleAnalyzeFile(event) {
+  const file = event.target.files?.[0];
+  if (!file) return;
+  await analyzeFile(file);
+  event.target.value = "";
+}
+
+async function analyzeFile(file) {
+  const results = $("analysisResults");
+  results.innerHTML = `<div class="status">Decoding and analyzing ${escapeHtml(file.name)}...</div>`;
+
+  try {
+    const ctx = await getAudioContext();
+    const data = await file.arrayBuffer();
+    const buffer = await ctx.decodeAudioData(data.slice(0));
+    const analysis = analyzeAudioBuffer(buffer, file.name);
+    renderAnalysisResults(analysis);
+  } catch (error) {
+    console.error(error);
+    results.innerHTML = `<div class="status">Could not decode that file. Try a standard WAV or MP3.</div>`;
+  }
+}
+
+function analyzeAudioBuffer(buffer, fileName) {
+  const left = buffer.getChannelData(0);
+  const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
+  const sampleRate = buffer.sampleRate;
+  const leftPeaks = findDominantPeaks(left, sampleRate);
+  const rightPeaks = findDominantPeaks(right, sampleRate);
+  const monoPeaks = mergePeaks(leftPeaks, rightPeaks);
+  const solfeggioMatches = matchSolfeggio(monoPeaks);
+  const binaural = detectBinaural(leftPeaks, rightPeaks);
+  const rms = channelRms(left);
+
+  return {
+    fileName,
+    duration: buffer.duration,
+    channels: buffer.numberOfChannels,
+    sampleRate,
+    rms,
+    monoPeaks,
+    leftPeaks,
+    rightPeaks,
+    solfeggioMatches,
+    binaural
+  };
+}
+
+function findDominantPeaks(channel, sampleRate) {
+  const maxSamples = Math.min(channel.length, 32768);
+  const start = Math.max(0, Math.floor((channel.length - maxSamples) / 2));
+  const segment = channel.subarray(start, start + maxSamples);
+  const rawPeaks = [];
+
+  for (let freq = 20; freq <= 1200; freq += 2) {
+    const power = goertzelPower(segment, sampleRate, freq);
+    rawPeaks.push({freq, power});
+  }
+
+  rawPeaks.sort((a, b) => b.power - a.power);
+  const peaks = [];
+  for (const peak of rawPeaks) {
+    if (peaks.every((chosen) => Math.abs(chosen.freq - peak.freq) > 8)) {
+      peaks.push(peak);
+    }
+    if (peaks.length >= 8) break;
+  }
+
+  const maxPower = peaks[0]?.power || 1;
+  return peaks.map((peak) => ({
+    freq: peak.freq,
+    strength: peak.power / maxPower
+  }));
+}
+
+function goertzelPower(samples, sampleRate, targetFreq) {
+  const omega = 2 * Math.PI * targetFreq / sampleRate;
+  const coeff = 2 * Math.cos(omega);
+  let q0 = 0;
+  let q1 = 0;
+  let q2 = 0;
+
+  for (let i = 0; i < samples.length; i++) {
+    const windowed = samples[i] * (0.5 - 0.5 * Math.cos(2 * Math.PI * i / Math.max(1, samples.length - 1)));
+    q0 = coeff * q1 - q2 + windowed;
+    q2 = q1;
+    q1 = q0;
+  }
+
+  return q1 * q1 + q2 * q2 - coeff * q1 * q2;
+}
+
+function mergePeaks(leftPeaks, rightPeaks) {
+  const merged = [...leftPeaks, ...rightPeaks].sort((a, b) => b.strength - a.strength);
+  const peaks = [];
+  for (const peak of merged) {
+    if (peaks.every((chosen) => Math.abs(chosen.freq - peak.freq) > 8)) peaks.push(peak);
+    if (peaks.length >= 10) break;
+  }
+  return peaks;
+}
+
+function matchSolfeggio(peaks) {
+  return solfeggio
+    .map((tone) => {
+      const nearest = peaks.reduce((best, peak) => {
+        const diff = Math.abs(peak.freq - tone.hz);
+        return !best || diff < best.diff ? {tone, peak, diff} : best;
+      }, null);
+      return nearest && nearest.diff <= 4 ? nearest : null;
+    })
+    .filter(Boolean);
+}
+
+function detectBinaural(leftPeaks, rightPeaks) {
+  let best = null;
+  for (const leftPeak of leftPeaks) {
+    for (const rightPeak of rightPeaks) {
+      const diff = Math.abs(rightPeak.freq - leftPeak.freq);
+      if (diff < 0.5 || diff > 45) continue;
+      const score = leftPeak.strength + rightPeak.strength - diff / 100;
+      if (!best || score > best.score) {
+        best = {
+          leftHz: leftPeak.freq,
+          rightHz: rightPeak.freq,
+          beatHz: diff,
+          score,
+          band: brainwaveBand(diff)
+        };
+      }
+    }
+  }
+  return best;
+}
+
+function brainwaveBand(freq) {
+  if (freq < 4) return "Delta";
+  if (freq < 8) return "Theta";
+  if (freq < 13) return "Alpha";
+  if (freq < 30) return "Beta";
+  return "Gamma";
+}
+
+function channelRms(channel) {
+  const step = Math.max(1, Math.floor(channel.length / 200000));
+  let sum = 0;
+  let count = 0;
+  for (let i = 0; i < channel.length; i += step) {
+    sum += channel[i] * channel[i];
+    count++;
+  }
+  return Math.sqrt(sum / Math.max(1, count));
+}
+
+function renderAnalysisResults(analysis) {
+  const peakRows = analysis.monoPeaks
+    .map((peak) => `<div class="item"><strong>${peak.freq.toFixed(0)} Hz</strong><span class="mini">Relative strength ${(peak.strength * 100).toFixed(0)}%</span></div>`)
+    .join("");
+
+  const solfeggioRows = analysis.solfeggioMatches.length
+    ? analysis.solfeggioMatches.map((match) => `<div class="item"><strong>${match.tone.title}</strong><span class="mini">Detected near ${match.peak.freq.toFixed(0)} Hz, off by ${match.diff.toFixed(1)} Hz. ${match.tone.desc}</span></div>`).join("")
+    : `<div class="item"><strong>No close solfeggio match found</strong><span class="mini">No dominant peak was within 4 Hz of the built-in solfeggio list.</span></div>`;
+
+  const binauralText = analysis.binaural
+    ? `<strong>${analysis.binaural.beatHz.toFixed(1)} Hz ${analysis.binaural.band}</strong><span class="mini">Left ${analysis.binaural.leftHz.toFixed(0)} Hz, right ${analysis.binaural.rightHz.toFixed(0)} Hz. This is a likely stereo binaural difference, not proof of intent.</span>`
+    : `<strong>No clear binaural beat detected</strong><span class="mini">The analyzer did not find a strong left/right frequency pair between 0.5 and 45 Hz apart.</span>`;
+
+  $("analysisResults").innerHTML = `
+    <div class="result-grid">
+      <div class="item"><span class="mini">Duration</span><span class="result-value">${analysis.duration.toFixed(1)}s</span></div>
+      <div class="item"><span class="mini">Channels</span><span class="result-value">${analysis.channels}</span></div>
+      <div class="item"><span class="mini">Level RMS</span><span class="result-value">${analysis.rms.toFixed(3)}</span></div>
+    </div>
+
+    <div class="card">
+      <h3>Dominant Tones</h3>
+      <div class="result-grid">${peakRows}</div>
+    </div>
+
+    <div class="card">
+      <h3>Solfeggio Matches</h3>
+      <div class="analysis-results">${solfeggioRows}</div>
+    </div>
+
+    <div class="card">
+      <h3>Binaural Beat Check</h3>
+      <div class="item">${binauralText}</div>
+    </div>
+
+    <div class="card">
+      <h3>Subliminal Message Decoding</h3>
+      <p class="note">
+        Exact words cannot be reliably deciphered from arbitrary mixed subliminal audio in the browser. This analyzer can tell you
+        what tones and binaural differences are present. To know exactly what words are being said, use the original project,
+        audible voice recordings, or a dedicated speech-to-text workflow on a clearly isolated vocal track.
+      </p>
+    </div>
+  `;
 }
 
 function createLoopingSources(ctx, destination, duration) {
@@ -1043,6 +1316,20 @@ renderFileList();
 updateRangeLabels();
 
 $("fileInput").addEventListener("change", handleFiles);
+$("analyzeFileInput").addEventListener("change", handleAnalyzeFile);
+$("analyzerDropZone").addEventListener("dragover", (event) => {
+  event.preventDefault();
+  $("analyzerDropZone").style.borderColor = "rgba(125, 211, 252, 0.7)";
+});
+$("analyzerDropZone").addEventListener("dragleave", () => {
+  $("analyzerDropZone").style.borderColor = "";
+});
+$("analyzerDropZone").addEventListener("drop", async (event) => {
+  event.preventDefault();
+  $("analyzerDropZone").style.borderColor = "";
+  const file = event.dataTransfer?.files?.[0];
+  if (file) await analyzeFile(file);
+});
 $("beatBand").addEventListener("change", updateBeatDescription);
 $("playBtn").addEventListener("click", playPreview);
 $("stopBtn").addEventListener("click", () => {

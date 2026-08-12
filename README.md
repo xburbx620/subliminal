@@ -9,6 +9,7 @@ Features:
 - Mix selected affirmation boxes together.
 - Add optional solfeggio frequencies.
 - Add optional binaural beats, including a Delta Focus 10-style preset.
+- Analyze uploaded WAV/MP3 files for dominant tones, solfeggio matches, and possible binaural beat differences.
 - Export a loopable WAV file.
 
 Run locally:
