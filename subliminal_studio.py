@@ -527,6 +527,8 @@ let progressTimer = null;
 let previewStartedAt = 0;
 let analyzedAudioBuffer = null;
 let analyzedAudioName = "";
+let activeSpeechRecognition = null;
+let speechRecognitionBaseText = "";
 
 const $ = (id) => document.getElementById(id);
 const dbToGain = (db) => Math.pow(10, Number(db) / 20);
@@ -1043,6 +1045,13 @@ function renderAnalysisResults(analysis) {
           <span class="mini">Boosts quiet speech for preview/export</span>
         </label>
       </div>
+      <label class="item check-row">
+        <input id="sttAutoTranscript" type="checkbox" checked />
+        <span>
+          <strong>Auto-transcribe while preview plays</strong>
+          <span class="mini">Uses browser microphone speech recognition; works best if the isolated preview is audible through speakers or a routed audio device.</span>
+        </span>
+      </label>
       <div class="button-row">
         <button type="button" onclick="previewSpeechWorkflow()">Preview Isolated Speech</button>
         <button class="danger" type="button" onclick="stopSpeechWorkflow()">Stop Preview</button>
@@ -1140,6 +1149,59 @@ function applyLowPass(samples, sampleRate, cutoff) {
   }
 }
 
+function startSpeechRecognitionForPreview() {
+  if (!$("sttAutoTranscript")?.checked) return "Auto-transcription is off.";
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    return "This browser does not support Web Speech Recognition.";
+  }
+
+  stopSpeechRecognition();
+  const transcriptBox = $("sttTranscript");
+  speechRecognitionBaseText = transcriptBox.value.trim();
+  if (speechRecognitionBaseText) speechRecognitionBaseText += "\n";
+
+  const recognition = new SpeechRecognition();
+  activeSpeechRecognition = recognition;
+  recognition.lang = "en-US";
+  recognition.continuous = true;
+  recognition.interimResults = true;
+
+  let finalText = "";
+  recognition.onresult = (event) => {
+    let interimText = "";
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const text = event.results[i][0]?.transcript || "";
+      if (event.results[i].isFinal) finalText += text.trim() + " ";
+      else interimText += text;
+    }
+    transcriptBox.value = (speechRecognitionBaseText + finalText + interimText).trim();
+  };
+  recognition.onerror = (event) => {
+    if ($("sttStatus")) $("sttStatus").textContent = `Speech recognition error: ${event.error}. The isolated preview still played.`;
+  };
+  recognition.onend = () => {
+    if (activeSpeechRecognition === recognition) activeSpeechRecognition = null;
+  };
+
+  try {
+    recognition.start();
+    return "Auto-transcription started. Allow microphone access if prompted.";
+  } catch (_) {
+    activeSpeechRecognition = null;
+    return "Could not start auto-transcription.";
+  }
+}
+
+function stopSpeechRecognition() {
+  if (!activeSpeechRecognition) return;
+  try {
+    activeSpeechRecognition.stop();
+  } catch (_) {}
+  activeSpeechRecognition = null;
+}
+
 async function previewSpeechWorkflow() {
   stopPreview();
   const ctx = await getAudioContext();
@@ -1153,10 +1215,12 @@ async function previewSpeechWorkflow() {
   src.connect(ctx.destination);
   src.start(0);
   previewNodes.push(src);
-  $("sttStatus").textContent = "Playing isolated speech preview.";
+  const recognitionStatus = startSpeechRecognitionForPreview();
+  $("sttStatus").textContent = `Playing isolated speech preview. ${recognitionStatus}`;
 }
 
 function stopSpeechWorkflow() {
+  stopSpeechRecognition();
   stopPreview();
   if ($("sttStatus")) $("sttStatus").textContent = "Stopped isolated speech preview.";
 }
@@ -1315,6 +1379,7 @@ function stopPreview() {
   progressTimer = null;
   $("progressBar").style.width = "0%";
   if (window.speechSynthesis) window.speechSynthesis.cancel();
+  stopSpeechRecognition();
 
   for (const node of previewNodes) {
     try { node.stop(); } catch (_) {}
