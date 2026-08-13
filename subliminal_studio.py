@@ -464,6 +464,14 @@ APP_HTML = r"""
       </div>
     </div>
   </section>
+
+  <section class="card">
+    <p class="note">
+      If you enjoy the program and want to donate, please donate to a good cause.
+      Here is a link to help someone in need.
+      <a href="https://gofund.me/5e040b70e" target="_blank" rel="noopener noreferrer">https://gofund.me/5e040b70e</a>
+    </p>
+  </section>
 </main>
 
 <script>
