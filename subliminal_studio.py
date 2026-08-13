@@ -297,6 +297,46 @@ APP_HTML = r"""
       font-weight: 900;
     }
 
+    .donation-card {
+      margin-top: 22px;
+      text-align: center;
+      border: 1px solid rgba(192, 132, 252, 0.36);
+      background:
+        radial-gradient(circle at top, rgba(192, 132, 252, 0.22), transparent 28rem),
+        linear-gradient(135deg, rgba(125, 211, 252, 0.12), rgba(192, 132, 252, 0.12)),
+        rgba(21, 27, 35, 0.94);
+    }
+
+    .donation-card h2 {
+      margin-bottom: 8px;
+      font-size: 1.35rem;
+      letter-spacing: -0.02em;
+    }
+
+    .donation-card p {
+      max-width: 720px;
+      margin: 0 auto 16px;
+    }
+
+    .donation-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: auto;
+      min-width: 240px;
+      padding: 13px 18px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #38bdf8, #c084fc);
+      color: #07111f;
+      font-weight: 900;
+      text-decoration: none;
+      box-shadow: 0 14px 34px rgba(56, 189, 248, 0.18);
+    }
+
+    .donation-button:hover {
+      transform: translateY(-1px);
+    }
+
     @media (max-width: 920px) {
       main { padding: 18px; }
       .grid, .row, .button-row, .message-grid, .result-grid { grid-template-columns: 1fr; }
@@ -465,12 +505,15 @@ APP_HTML = r"""
     </div>
   </section>
 
-  <section class="card">
-    <p class="note">
+  <section class="card donation-card">
+    <h2>Support A Good Cause</h2>
+    <p>
       If you enjoy the program and want to donate, please donate to a good cause.
       Here is a link to help someone in need.
-      <a href="https://gofund.me/5e040b70e" target="_blank" rel="noopener noreferrer">https://gofund.me/5e040b70e</a>
     </p>
+    <a class="donation-button" href="https://gofund.me/5e040b70e" target="_blank" rel="noopener noreferrer">
+      Donate To Help Someone In Need
+    </a>
   </section>
 </main>
 
